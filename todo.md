@@ -94,6 +94,7 @@
 - [ ] دفع تغييرات GitHub Pages الأخيرة إلى مستودع koutoubia.auto-ecole.
 - [ ] تشغيل Workflow الجديد والتحقق من نجاحه.
 - [ ] فتح رابط GitHub Pages والتحقق من زوال 404.
+- [ ] إصلاح Router ليتعامل مع مسار المستودع /koutoubia.auto-ecole/ في GitHub Pages.
 
 - [ ] إصلاح Workflow بإزالة تعريف إصدار pnpm المكرر.
 - [ ] إعادة تشغيل Workflow والتحقق من نجاح GitHub Pages.
@@ -101,3 +102,4 @@
 - [ ] رفع ملفات عميل Supabase وأدوات الدفع اللازمة إلى مستودع Pages.
 - [ ] تعديل Workflow ليبني واجهة Vite فقط دون server/index.ts.
 - [ ] إعادة تشغيل Workflow والتحقق من نجاح النشر وفتح الرابط.
+- [ ] مزامنة package.json وpnpm-lock.yaml حتى يتوفر اعتماد @supabase/supabase-js في البناء البعيد.
