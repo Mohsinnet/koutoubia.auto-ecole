@@ -94,3 +94,6 @@
 - [ ] دفع تغييرات GitHub Pages الأخيرة إلى مستودع koutoubia.auto-ecole.
 - [ ] تشغيل Workflow الجديد والتحقق من نجاحه.
 - [ ] فتح رابط GitHub Pages والتحقق من زوال 404.
+
+- [ ] إصلاح Workflow بإزالة تعريف إصدار pnpm المكرر.
+- [ ] إعادة تشغيل Workflow والتحقق من نجاح GitHub Pages.
