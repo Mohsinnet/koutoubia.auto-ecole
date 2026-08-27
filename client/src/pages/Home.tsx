@@ -3,6 +3,8 @@ import { toast } from "sonner";
 import { Archive, BarChart3, Check, ClipboardList, FileSpreadsheet, Menu, Pencil, Plus, RefreshCw, Search, Trash2, UserRound, Users, X } from "lucide-react";
 import { supabase, supabaseConfigured, toLicensePayload, toLicenseRecord, type LicenseRecordForm, type LicenseRecordRow } from "@/lib/supabase";
 import { calculateRemaining, formatMoney, toggleMenu } from "@/lib/payment-utils";
+import { getAuthRedirectUrl } from "@/lib/auth-url";
+import { formatAuthError } from "@/lib/auth-error";
 
 type Result = "ناجح" | "راسب" | "قيد المعالجة";
 type RecordItem = ReturnType<typeof toLicenseRecord>;
@@ -57,9 +59,20 @@ export default function Home() {
 
   async function submitAuth(event: FormEvent) {
     event.preventDefault(); if (!supabase) return; setAuthBusy(true);
-    const result = authMode === "login" ? await supabase.auth.signInWithPassword({ email: authEmail.trim(), password: authPassword }) : await supabase.auth.signUp({ email: authEmail.trim(), password: authPassword });
-    if (result.error) toast.error(result.error.message.includes("Invalid login") ? "البريد الإلكتروني أو كلمة المرور غير صحيحة" : result.error.message);
+    const result = authMode === "login" ? await supabase.auth.signInWithPassword({ email: authEmail.trim(), password: authPassword }) : await supabase.auth.signUp({ email: authEmail.trim(), password: authPassword, options: { emailRedirectTo: getAuthRedirectUrl(window.location.origin, import.meta.env.BASE_URL) } });
+    if (result.error) toast.error(formatAuthError(result.error.message));
     else { toast.success(authMode === "login" ? "تم تسجيل الدخول" : "تم إنشاء الحساب، تحقق من بريدك إن طُلب ذلك"); if (result.data.session) setSession(result.data.session as typeof session); }
+    setAuthBusy(false);
+  }
+
+  async function resendConfirmation() {
+    if (!supabase) return;
+    const email = authEmail.trim();
+    if (!email) { toast.error("أدخل البريد الإلكتروني أولًا"); return; }
+    setAuthBusy(true);
+    const { error } = await supabase.auth.resend({ type: "signup", email, options: { emailRedirectTo: getAuthRedirectUrl(window.location.origin, import.meta.env.BASE_URL) } });
+    if (error) toast.error(formatAuthError(error.message));
+    else toast.success("تم إرسال رابط تأكيد جديد. تحقق من بريدك الإلكتروني.");
     setAuthBusy(false);
   }
 
@@ -96,7 +109,7 @@ export default function Home() {
 
   if (authLoading) return <AuthLoading />;
   if (!supabaseConfigured) return <SetupScreen />;
-  if (!session) return <LoginScreen mode={authMode} setMode={setAuthMode} email={authEmail} setEmail={setAuthEmail} password={authPassword} setPassword={setAuthPassword} busy={authBusy} onSubmit={submitAuth} />;
+  if (!session) return <LoginScreen mode={authMode} setMode={setAuthMode} email={authEmail} setEmail={setAuthEmail} password={authPassword} setPassword={setAuthPassword} busy={authBusy} onSubmit={submitAuth} onResendConfirmation={resendConfirmation} />;
 
   return <div className="min-h-screen bg-[#f5f2eb] text-[#173840]" dir="rtl">
     <aside className="fixed inset-y-0 right-0 z-20 hidden w-[270px] flex-col bg-[#0d3943] text-white lg:flex"><div className="border-b border-white/10 px-7 py-7"><div className="flex items-center gap-3"><div className="flex h-12 w-12 items-center justify-center rounded-xl bg-[#e8793a] text-xl font-black">س</div><div><div className="font-bold">سيارة التعليم الكتبية</div><div className="mt-1 text-[11px] text-[#a9c8c5]">السجل الرقمي</div></div></div></div><div className="px-5 py-7"><p className="mb-3 px-3 text-[10px] font-bold uppercase tracking-[0.18em] text-[#8db4b1]">مساحة العمل</p><nav className="space-y-2"><button className="nav-item nav-active"><ClipboardList size={18} /> السجل اليومي</button><button className="nav-item" onClick={() => toast.info("قسم المترشحين متاح من السجل اليومي") }><Users size={18} /> المترشحون</button><button className="nav-item" onClick={() => toast.info("التقارير قيد الإعداد") }><BarChart3 size={18} /> التقارير</button></nav></div><div className="mt-auto px-6 pb-7"><div className="rounded-2xl border border-white/20 bg-white/5 p-4"><p className="truncate text-xs font-semibold">{session.user.user_metadata?.full_name || session.user.email}</p><p className="mt-1 text-[10px] text-[#a9c8c5]">جلسة Supabase مفعّلة</p><button onClick={() => void logout()} className="mt-4 w-full rounded-xl border border-white/15 px-3 py-2 text-xs font-semibold text-[#d7e8e5] transition hover:bg-white/10">تسجيل الخروج</button></div></div></aside>
@@ -107,7 +120,7 @@ export default function Home() {
   </div>;
 }
 
-function LoginScreen({ mode, setMode, email, setEmail, password, setPassword, busy, onSubmit }: { mode: "login" | "signup"; setMode: (mode: "login" | "signup") => void; email: string; setEmail: (value: string) => void; password: string; setPassword: (value: string) => void; busy: boolean; onSubmit: (event: FormEvent) => void }) { return <div className="flex min-h-screen items-center justify-center bg-[#f5f2eb] p-5" dir="rtl"><div className="w-full max-w-md rounded-[26px] bg-white p-8 shadow-xl"><div className="mb-8 text-center"><div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-[#e8793a] text-2xl font-black text-white">س</div><h1 className="text-2xl font-bold text-[#173840]">سيارة التعليم الكتبية</h1><p className="mt-2 text-sm text-[#7c8d8d]">السجل الرقمي — {mode === "login" ? "تسجيل الدخول" : "إنشاء حساب"}</p></div><form onSubmit={onSubmit} className="space-y-4"><Field label="البريد الإلكتروني" type="email" value={email} onChange={setEmail} required placeholder="name@example.com" /><Field label="كلمة المرور" type="password" value={password} onChange={setPassword} required placeholder="••••••••" /><button className="primary-button w-full justify-center" disabled={busy}>{busy ? "جارٍ التحقق..." : mode === "login" ? "تسجيل الدخول" : "إنشاء الحساب"}</button></form><button className="mt-5 w-full text-sm font-semibold text-[#e8793a]" onClick={() => setMode(mode === "login" ? "signup" : "login")}>{mode === "login" ? "إنشاء حساب جديد" : "العودة إلى تسجيل الدخول"}</button></div></div>; }
+function LoginScreen({ mode, setMode, email, setEmail, password, setPassword, busy, onSubmit, onResendConfirmation }: { mode: "login" | "signup"; setMode: (mode: "login" | "signup") => void; email: string; setEmail: (value: string) => void; password: string; setPassword: (value: string) => void; busy: boolean; onSubmit: (event: FormEvent) => void; onResendConfirmation: () => void }) { return <div className="flex min-h-screen items-center justify-center bg-[#f5f2eb] p-5" dir="rtl"><div className="w-full max-w-md rounded-[26px] bg-white p-8 shadow-xl"><div className="mb-8 text-center"><div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-[#e8793a] text-2xl font-black text-white">س</div><h1 className="text-2xl font-bold text-[#173840]">سيارة التعليم الكتبية</h1><p className="mt-2 text-sm text-[#7c8d8d]">السجل الرقمي — {mode === "login" ? "تسجيل الدخول" : "إنشاء حساب"}</p></div><form onSubmit={onSubmit} className="space-y-4"><Field label="البريد الإلكتروني" type="email" value={email} onChange={setEmail} required placeholder="name@example.com" /><Field label="كلمة المرور" type="password" value={password} onChange={setPassword} required placeholder="••••••••" /><button className="primary-button w-full justify-center" disabled={busy}>{busy ? "جارٍ التحقق..." : mode === "login" ? "تسجيل الدخول" : "إنشاء الحساب"}</button></form>{mode === "login" && <button type="button" className="mt-4 w-full text-sm font-semibold text-[#536d70] underline decoration-[#e8793a] underline-offset-4" onClick={() => void onResendConfirmation()} disabled={busy}>إعادة إرسال رابط تأكيد البريد</button>}<button type="button" className="mt-5 w-full text-sm font-semibold text-[#e8793a]" onClick={() => setMode(mode === "login" ? "signup" : "login")}>{mode === "login" ? "إنشاء حساب جديد" : "العودة إلى تسجيل الدخول"}</button></div></div>; }
 function SetupScreen() { return <div className="flex min-h-screen items-center justify-center bg-[#f5f2eb] p-6 text-center" dir="rtl"><div className="max-w-lg rounded-3xl bg-white p-8 shadow-xl"><h1 className="text-2xl font-bold">إعداد الاتصال مطلوب</h1><p className="mt-3 text-sm text-[#6b7d7c]">أضف VITE_SUPABASE_URL وVITE_SUPABASE_PUBLISHABLE_KEY إلى أسرار GitHub ثم أعد البناء.</p></div></div>; }
 function AuthLoading() { return <div className="flex min-h-screen items-center justify-center bg-[#f5f2eb] text-[#36585d]" dir="rtl"><span className="loading-spinner ml-3" /> جارٍ التحقق من جلسة الدخول...</div>; }
 function StatCard({ label, value, detail, icon: Icon, tone }: { label: string; value: number; detail: string; icon: typeof Archive; tone: string }) { return <div className={`stat-card tone-${tone}`}><div className="flex items-start justify-between"><span className="text-sm text-[#7c8d8d]">{label}</span><Icon size={18} /></div><div className="mt-3 text-3xl font-black">{String(value).padStart(2, "0")}</div><div className="mt-2 text-xs text-[#9aa7a5]">{detail}</div></div>; }
