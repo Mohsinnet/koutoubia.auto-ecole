@@ -106,3 +106,6 @@
 - [x] معالجة إعداد VITE_SUPABASE_URL وVITE_SUPABASE_PUBLISHABLE_KEY في نسخة Pages عبر إعداد Supabase العام الاحتياطي، إذ تعذر على رمز التكامل كتابة GitHub Repository Secrets.
 - [x] تشخيص استمرار رسالة «إعداد الاتصال مطلوب» في النسخة المنشورة والتحقق من أسرار GitHub وبيئة البناء.
 - [x] توفير إعداد Supabase العام في بناء Pages بطريقة آمنة عند تعذر صلاحية كتابة GitHub Secrets.
+- [x] تشخيص خطأ 404 الحالي من GitHub Pages والتحقق من رابط الموقع ومصدر النشر.
+- [x] تغيير مصدر GitHub Pages من branch root إلى GitHub Actions artifact.
+- [x] إعادة تشغيل Workflow والتحقق من أن الرابط الأصلي يعرض شاشة الدخول بدل 404.
