@@ -81,9 +81,9 @@
 
 - [x] حفظ checkpoint جديد بعد تعديل موضع فئة الرخصة بجانب رقم العربة وتوثيق الإصدار.
 
-- [ ] التحقق من اسم Repository الجديد ورابط GitHub Pages.
-- [ ] فحص مصدر GitHub Pages والفرع وإعدادات البناء بعد إعادة التسمية.
-- [ ] تصحيح الرابط أو الإعدادات والتحقق من عودة الموقع.
+- [x] التحقق من اسم Repository الجديد ورابط GitHub Pages.
+- [x] فحص مصدر GitHub Pages والفرع وإعدادات البناء بعد إعادة التسمية.
+- [x] تصحيح الرابط أو الإعدادات والتحقق من عودة الموقع.
 
 - [x] إعداد نسخة Vite ثابتة تعمل تحت مسار koutoubia.auto-ecole.
 - [x] استبدال الاعتماد على tRPC وNode بعميل Supabase مباشر للواجهة.
@@ -103,4 +103,6 @@
 - [x] تعديل Workflow ليبني واجهة Vite فقط دون server/index.ts.
 - [x] إعادة تشغيل Workflow والتحقق من نجاح النشر وفتح الرابط.
 - [x] مزامنة package.json وpnpm-lock.yaml حتى يتوفر اعتماد @supabase/supabase-js في البناء البعيد.
-- [ ] إضافة VITE_SUPABASE_URL وVITE_SUPABASE_PUBLISHABLE_KEY يدويًا إلى GitHub Repository Secrets لأن رمز التكامل لا يملك صلاحية إدارة Secrets.
+- [x] معالجة إعداد VITE_SUPABASE_URL وVITE_SUPABASE_PUBLISHABLE_KEY في نسخة Pages عبر إعداد Supabase العام الاحتياطي، إذ تعذر على رمز التكامل كتابة GitHub Repository Secrets.
+- [x] تشخيص استمرار رسالة «إعداد الاتصال مطلوب» في النسخة المنشورة والتحقق من أسرار GitHub وبيئة البناء.
+- [x] توفير إعداد Supabase العام في بناء Pages بطريقة آمنة عند تعذر صلاحية كتابة GitHub Secrets.
