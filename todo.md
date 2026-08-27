@@ -109,3 +109,5 @@
 - [x] تشخيص خطأ 404 الحالي من GitHub Pages والتحقق من رابط الموقع ومصدر النشر.
 - [x] تغيير مصدر GitHub Pages من branch root إلى GitHub Actions artifact.
 - [x] إعادة تشغيل Workflow والتحقق من أن الرابط الأصلي يعرض شاشة الدخول بدل 404.
+- [ ] إصلاح رابط تأكيد البريد الذي يعيد إلى localhost ويؤدي إلى otp_expired.
+- [ ] تشخيص رفض تسجيل الدخول لحساب koutoubiauto@gmail.com والتحقق من تأكيد البريد وإعدادات Supabase Auth.
