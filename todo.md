@@ -91,15 +91,16 @@
 - [x] توثيق VITE_SUPABASE_URL وVITE_SUPABASE_PUBLISHABLE_KEY كأسرار GitHub.
 - [x] اختبار البناء ورفع التحديث إلى GitHub والتحقق من رابط Pages.
 
-- [ ] دفع تغييرات GitHub Pages الأخيرة إلى مستودع koutoubia.auto-ecole.
-- [ ] تشغيل Workflow الجديد والتحقق من نجاحه.
-- [ ] فتح رابط GitHub Pages والتحقق من زوال 404.
-- [ ] إصلاح Router ليتعامل مع مسار المستودع /koutoubia.auto-ecole/ في GitHub Pages.
+- [x] دفع تغييرات GitHub Pages الأخيرة إلى مستودع koutoubia.auto-ecole.
+- [x] تشغيل Workflow الجديد والتحقق من نجاحه.
+- [x] فتح رابط GitHub Pages والتحقق من زوال 404.
+- [x] إصلاح Router ليتعامل مع مسار المستودع /koutoubia.auto-ecole/ في GitHub Pages.
 
-- [ ] إصلاح Workflow بإزالة تعريف إصدار pnpm المكرر.
-- [ ] إعادة تشغيل Workflow والتحقق من نجاح GitHub Pages.
+- [x] إصلاح Workflow بإزالة تعريف إصدار pnpm المكرر.
+- [x] إعادة تشغيل Workflow والتحقق من نجاح GitHub Pages.
 
-- [ ] رفع ملفات عميل Supabase وأدوات الدفع اللازمة إلى مستودع Pages.
-- [ ] تعديل Workflow ليبني واجهة Vite فقط دون server/index.ts.
-- [ ] إعادة تشغيل Workflow والتحقق من نجاح النشر وفتح الرابط.
-- [ ] مزامنة package.json وpnpm-lock.yaml حتى يتوفر اعتماد @supabase/supabase-js في البناء البعيد.
+- [x] رفع ملفات عميل Supabase وأدوات الدفع اللازمة إلى مستودع Pages.
+- [x] تعديل Workflow ليبني واجهة Vite فقط دون server/index.ts.
+- [x] إعادة تشغيل Workflow والتحقق من نجاح النشر وفتح الرابط.
+- [x] مزامنة package.json وpnpm-lock.yaml حتى يتوفر اعتماد @supabase/supabase-js في البناء البعيد.
+- [ ] إضافة VITE_SUPABASE_URL وVITE_SUPABASE_PUBLISHABLE_KEY يدويًا إلى GitHub Repository Secrets لأن رمز التكامل لا يملك صلاحية إدارة Secrets.
