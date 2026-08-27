@@ -25,8 +25,9 @@ export type LicenseRecordRow = {
   updated_at: string;
 };
 
-const url = import.meta.env.VITE_SUPABASE_URL as string | undefined;
-const key = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string | undefined;
+// These are public Supabase client values. RLS and Auth policies remain the security boundary.
+const url = (import.meta.env.VITE_SUPABASE_URL as string | undefined) || "https://pwegmmnudnnbbmwbdgbn.supabase.co";
+const key = (import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string | undefined) || "sb_publishable_LRu4pWHhVLMte8-RzqmjYQ_v2xN3r83";
 
 export const supabase: SupabaseClient | null = url && key ? createClient(url, key) : null;
 export const supabaseConfigured = Boolean(supabase);
