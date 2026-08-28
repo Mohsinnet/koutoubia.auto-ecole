@@ -1,5 +1,6 @@
 import { CreditCard, Printer, X } from "lucide-react";
 import { formatMoney } from "@/lib/payment-utils";
+import { formatDisplayDate } from "@/lib/date-utils";
 
 type CandidateCardRecord = {
   id: number;
@@ -25,12 +26,6 @@ type CandidateCardRecord = {
 
 type CandidateCardProps = { record: CandidateCardRecord; close: () => void };
 
-function displayDate(value: string) {
-  if (!value) return "غير محدد";
-  const [year, month, day] = value.split("-");
-  return year && month && day ? `${day}/${month}/${year}` : value;
-}
-
 function StatusBadge({ value }: { value: string }) {
   const tone = value === "ناجح" ? "bg-[#e9f0ed] text-[#276653]" : value === "راسب" ? "bg-[#fbe9e6] text-[#a64e46]" : "bg-[#fff1e8] text-[#b65d2f]";
   return <span className={`inline-flex rounded-full px-2.5 py-1 text-[11px] font-bold ${tone}`}>{value || "غير محدد"}</span>;
@@ -45,7 +40,7 @@ export default function CandidateCard({ record, close }: CandidateCardProps) {
       </header>
       <div className="grid gap-6 px-6 py-6 sm:grid-cols-[150px_1fr]">
         <div className="flex flex-col items-center gap-3"><div className="flex h-32 w-32 items-center justify-center overflow-hidden rounded-2xl bg-[#e9f0ed] text-3xl font-bold text-[#5f7c7c]">{record.photoUrl ? <img src={record.photoUrl} alt={`صورة ${record.name}`} className="h-full w-full object-cover" /> : record.name.trim().slice(0, 1) || "؟"}</div><p className="text-center text-xs text-[#8b9998]">رقم الملف: #{record.id}</p></div>
-        <div className="grid gap-4 sm:grid-cols-2"><Info label="رقم التسجيل" value={record.registrationNumber || "غير مسجل"} /><Info label="تاريخ التسجيل" value={displayDate(record.registrationDate)} /><Info label="رقم بطاقة التعريف" value={record.idCard || "غير مسجل"} /><Info label="رقم الهاتف" value={record.phone || "غير مسجل"} /><Info label="تاريخ الميلاد" value={displayDate(record.birth)} /><Info label="العربة / الفئة" value={`${record.vehicleNumber || "بدون عربة"} / ${record.category}`} /><Info label="الامتحان الأول" value={displayDate(record.exam)} extra={<StatusBadge value={record.result} />} /><Info label="الامتحان الثاني" value={record.secondExamDate ? displayDate(record.secondExamDate) : "غير مبرمج"} extra={record.secondResult ? <StatusBadge value={record.secondResult} /> : undefined} /></div>
+        <div className="grid gap-4 sm:grid-cols-2"><Info label="رقم التسجيل" value={record.registrationNumber || "غير مسجل"} /><Info label="تاريخ التسجيل" value={formatDisplayDate(record.registrationDate)} /><Info label="رقم بطاقة التعريف" value={record.idCard || "غير مسجل"} /><Info label="رقم الهاتف" value={record.phone || "غير مسجل"} /><Info label="تاريخ الميلاد" value={formatDisplayDate(record.birth)} /><Info label="العربة / الفئة" value={`${record.vehicleNumber || "بدون عربة"} / ${record.category}`} /><Info label="الامتحان الأول" value={formatDisplayDate(record.exam)} extra={<StatusBadge value={record.result} />} /><Info label="الامتحان الثاني" value={record.secondExamDate ? formatDisplayDate(record.secondExamDate) : "غير مبرمج"} extra={record.secondResult ? <StatusBadge value={record.secondResult} /> : undefined} /></div>
       </div>
       <section className="mx-6 rounded-2xl border border-[#e9e2d8] bg-white p-5"><h3 className="font-bold text-[#254950]">ملخص المدفوعات</h3><div className="mt-4 grid gap-3 sm:grid-cols-4"><Payment label="الإجمالي" value={record.totalAmount} /><Payment label="الدفعة الأولى" value={record.firstPayment} /><Payment label="الدفعة الثانية" value={record.secondPayment} /><Payment label="الباقي" value={record.remainingAmount} accent /></div></section>
       {record.notes && <section className="mx-6 mt-4 rounded-2xl bg-[#fffaf5] p-5"><h3 className="font-bold text-[#254950]">ملاحظات</h3><p className="mt-2 whitespace-pre-wrap text-sm leading-7 text-[#637775]">{record.notes}</p></section>}

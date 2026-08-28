@@ -1,13 +1,14 @@
 import { useMemo, useState } from "react";
 import { CalendarDays, ChevronLeft, ChevronRight } from "lucide-react";
 import { getExamEvents, getMonthCells, toDateKey, type CalendarRecord, type ExamEvent } from "@/lib/calendar-utils";
+import { formatDisplayDate } from "@/lib/date-utils";
 
 type ExamCalendarProps = { records: CalendarRecord[] };
 
 const weekDays = ["الأحد", "الإثنين", "الثلاثاء", "الأربعاء", "الخميس", "الجمعة", "السبت"];
 
 function formatSelectedDate(value: string) {
-  return new Intl.DateTimeFormat("ar-MA", { weekday: "long", day: "numeric", month: "long", year: "numeric" }).format(new Date(`${value}T00:00:00`));
+  return formatDisplayDate(value);
 }
 
 function eventTone(event: ExamEvent) {
