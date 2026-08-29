@@ -5,6 +5,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { defineConfig, type Plugin, type ViteDevServer } from "vite";
 import { vitePluginManusRuntime } from "vite-plugin-manus-runtime";
+import { VitePWA } from "vite-plugin-pwa";
 
 // =============================================================================
 // Manus Debug Collector - Vite Plugin
@@ -155,6 +156,60 @@ const plugins = [
   react(),
   tailwindcss(),
   ...(isDev ? [jsxLocPlugin(), vitePluginManusRuntime(), vitePluginManusDebugCollector()] : []),
+  VitePWA({
+    registerType: "autoUpdate",
+    includeAssets: ["icons/*.png", "icons/*.svg"],
+    manifest: {
+      name: "سيارة التعليم الكتبية",
+      short_name: "الكتبية",
+      description: "السجل الرقمي لسيارة التعليم الكتبية - إدارة المترشحين والامتحانات",
+      theme_color: "#0d3943",
+      background_color: "#f6f3ed",
+      display: "standalone",
+      orientation: "portrait",
+      scope: process.env.GITHUB_ACTIONS ? "/koutoubia.auto-ecole/" : "/",
+      start_url: process.env.GITHUB_ACTIONS ? "/koutoubia.auto-ecole/" : "/",
+      lang: "ar",
+      dir: "rtl",
+      categories: ["education", "business"],
+      icons: [
+        { src: "icons/icon-192.png", sizes: "192x192", type: "image/png", purpose: "any" },
+        { src: "icons/icon-512.png", sizes: "512x512", type: "image/png", purpose: "any" },
+        { src: "icons/icon-512-maskable.png", sizes: "512x512", type: "image/png", purpose: "maskable" },
+        { src: "icons/icon.svg", sizes: "any", type: "image/svg+xml", purpose: "any" },
+      ],
+      shortcuts: [
+        { name: "إضافة مترشح", short_name: "إضافة", description: "إضافة مترشح جديد", url: process.env.GITHUB_ACTIONS ? "/koutoubia.auto-ecole/" : "/", icons: [{ src: "icons/icon-192.png", sizes: "192x192" }] },
+        { name: "التقارير", short_name: "التقارير", description: "عرض التقارير", url: process.env.GITHUB_ACTIONS ? "/koutoubia.auto-ecole/" : "/", icons: [{ src: "icons/icon-192.png", sizes: "192x192" }] },
+      ],
+      screenshots: [
+        { src: "icons/icon-512.png", sizes: "512x512", type: "image/png", form_factor: "narrow" },
+        { src: "icons/icon-512.png", sizes: "512x512", type: "image/png", form_factor: "wide" },
+      ],
+    },
+    workbox: {
+      globPatterns: ["**/*.{js,css,html,svg,png,ico}"],
+      runtimeCaching: [
+        {
+          urlPattern: /^https:\/\/fonts\.googleapis\.com\/.*/i,
+          handler: "CacheFirst",
+          options: { cacheName: "google-fonts-cache", expiration: { maxEntries: 10, maxAgeSeconds: 60 * 60 * 24 * 365 } },
+        },
+        {
+          urlPattern: /^https:\/\/fonts\.gstatic\.com\/.*/i,
+          handler: "CacheFirst",
+          options: { cacheName: "gstatic-fonts-cache", expiration: { maxEntries: 10, maxAgeSeconds: 60 * 60 * 24 * 365 } },
+        },
+        {
+          urlPattern: /^https:\/\/.*\.supabase\.co\/.*/i,
+          handler: "NetworkFirst",
+          options: { cacheName: "supabase-cache", networkTimeoutSeconds: 10, expiration: { maxEntries: 50, maxAgeSeconds: 60 * 5 } },
+        },
+      ],
+      navigateFallbackDenylist: [/^\/api\//],
+    },
+    devOptions: { enabled: false },
+  }),
 ];
 
 export default defineConfig({
