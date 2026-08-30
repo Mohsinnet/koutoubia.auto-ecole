@@ -1,10 +1,10 @@
-export type ActiveSection = "daily" | "candidates" | "reports";
+export type ActiveSection = "home" | "candidates" | "reports";
 
 export const sectionMeta: Record<ActiveSection, { eyebrow: string; title: string; subtitle: string }> = {
-  daily: {
-    eyebrow: "لوحة متابعة المترشحين",
-    title: "السجل اليومي",
-    subtitle: "إدارة البيانات",
+  home: {
+    eyebrow: "الصفحة الرئيسية",
+    title: "سيارة التعليم الكتبية",
+    subtitle: "قاعدة البيانات",
   },
   candidates: {
     eyebrow: "إدارة الملفات",
