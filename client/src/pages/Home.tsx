@@ -157,6 +157,7 @@ function WelcomeView() {
     <p className="mt-5 text-2xl font-bold text-[#e8793a] sm:text-3xl">قاعدة البيانات</p>
     <div className="lane-divider mt-8 w-72" />
     <p className="mt-8 max-w-md text-sm leading-7 text-[#7c8d8d]">منصة إدارة المترشحين والامتحانات — سجلاتك محفوظة ومزامنة مباشرة مع Supabase.</p>
+    <p className="mt-6 text-sm font-semibold text-[#0d3943]">من إعداد و برمجة: محسن إكيدر</p>
   </div>;
 }
 
