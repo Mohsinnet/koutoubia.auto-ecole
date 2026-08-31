@@ -2,13 +2,14 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 const homeSource = readFileSync(new URL("../pages/Home.tsx", import.meta.url), "utf8");
+const tableSource = readFileSync(new URL("../components/CandidateTable.tsx", import.meta.url), "utf8");
 const calendarSource = readFileSync(new URL("../components/ExamCalendar.tsx", import.meta.url), "utf8");
 const cardSource = readFileSync(new URL("../components/CandidateCard.tsx", import.meta.url), "utf8");
 
 describe("candidate features wiring", () => {
   it("wires the table action to the candidate card", () => {
-    expect(homeSource).toContain("setViewingRecord(item)");
-    expect(homeSource).toContain("مشاهدة البطاقة");
+    expect(tableSource).toContain("setViewingRecord(item)");
+    expect(tableSource).toContain("مشاهدة البطاقة");
     expect(homeSource).toContain("<CandidateCard record={viewingRecord}");
     expect(cardSource).toContain("بطاقة المترشح");
   });
