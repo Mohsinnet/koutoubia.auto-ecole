@@ -33,6 +33,15 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Verify Supabase secrets are present
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.VITE_SUPABASE_PUBLISHABLE_KEY }}
+        run: |
+          test -n "$VITE_SUPABASE_URL" || { echo "::error::Missing secret VITE_SUPABASE_URL"; exit 1; }
+          test -n "$VITE_SUPABASE_PUBLISHABLE_KEY" || { echo "::error::Missing secret VITE_SUPABASE_PUBLISHABLE_KEY"; exit 1; }
+          echo "Supabase secrets are configured."
+
       - name: Build static site
         env:
           GITHUB_ACTIONS: true
