@@ -8,11 +8,16 @@ import { isSectionActive, sectionMeta, type ActiveSection } from "@/lib/navigati
 import ExamCalendar from "@/components/ExamCalendar";
 import CandidateCard from "@/components/CandidateCard";
 import CandidateTable from "@/components/CandidateTable";
+import ConfirmDialog from "@/components/ConfirmDialog";
 import { formatDisplayDate } from "@/lib/date-utils";
 
 type Result = "ناجح" | "راسب" | "قيد المعالجة";
 type RecordItem = ReturnType<typeof toLicenseRecord>;
 type FormState = LicenseRecordForm;
+
+type ConfirmAction = { kind: "delete"; id: number; name?: string } | { kind: "remove-photo"; item: RecordItem };
+
+type OfflineOp = { type: "insert" | "update" | "delete"; tempId?: number; id?: number; payload?: ReturnType<typeof toLicensePayload> };
 
 const emptyForm: FormState = {
   registrationNumber: "", registrationDate: new Date().toISOString().slice(0, 10), photoUrl: "", photoKey: "", vehicleNumber: "",
@@ -22,6 +27,34 @@ const emptyForm: FormState = {
 function initials(name: string) { return name.trim().split(/\s+/).slice(0, 2).map((part) => part.slice(0, 1)).join("") || "؟"; }
 
 const LOGO_URL = import.meta.env.BASE_URL + "icons/logo.png";
+
+const OFFLINE_QUEUE_KEY = "koutoubia_offline_queue";
+
+function readOfflineQueue(): OfflineOp[] {
+  try { return JSON.parse(localStorage.getItem(OFFLINE_QUEUE_KEY) || "[]") as OfflineOp[]; } catch { return []; }
+}
+
+function writeOfflineQueue(queue: OfflineOp[]) {
+  try { localStorage.setItem(OFFLINE_QUEUE_KEY, JSON.stringify(queue)); } catch { /* ignore */ }
+}
+
+function isOfflineError(error: { message?: string; code?: string } | null) {
+  if (!error) return false;
+  return !error.code && /fetch|network|timeout|timed out|load fail|offline|socket/i.test(error.message || "");
+}
+
+function daysLabel(dateStr: string) {
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const when = new Date(`${dateStr}T00:00:00`);
+  const diff = Math.round((when.getTime() - today.getTime()) / 86400000);
+  if (diff === 0) return "اليوم";
+  if (diff === 1) return "غداً";
+  return `بعد ${diff} أيام`;
+}
+
+function optimisticFields(payload: ReturnType<typeof toLicensePayload>): Partial<RecordItem> {
+  return { registrationNumber: payload.registration_number ?? "", registrationDate: payload.registration_date, photoUrl: payload.photo_url ?? "", photoKey: payload.photo_key ?? "", vehicleNumber: payload.vehicle_number ?? "", secondExamDate: payload.second_exam_date ?? "", secondResult: payload.second_result ?? "", totalAmount: payload.total_amount, firstPayment: payload.first_payment, secondPayment: payload.second_payment, remainingAmount: payload.remaining_amount, name: payload.name, birth: payload.birth_date ?? "", phone: payload.phone ?? "", idCard: payload.id_card ?? "", exam: payload.exam_date ?? "", category: payload.category, result: payload.result ?? "", notes: payload.notes ?? "" } as Partial<RecordItem>;
+}
 
 export default function Home() {
   const [session, setSession] = useState<{ user: { id: string; email?: string | null; user_metadata?: { full_name?: string } } } | null>(null);
@@ -42,6 +75,10 @@ export default function Home() {
   const [activeSection, setActiveSection] = useState<ActiveSection>("home");
   const [viewingRecord, setViewingRecord] = useState<RecordItem | null>(null);
   const [candidatesView, setCandidatesView] = useState<"list" | "calendar">("list");
+  const [filterCategory, setFilterCategory] = useState("");
+  const [filterResult, setFilterResult] = useState("");
+  const [confirmAction, setConfirmAction] = useState<ConfirmAction | null>(null);
+  const [confirmBusy, setConfirmBusy] = useState(false);
 
   useEffect(() => {
     if (!supabase) { setAuthLoading(false); return; }
@@ -65,10 +102,74 @@ export default function Home() {
     setLoading(false); setSyncing(false);
   }
 
-  useEffect(() => { if (session) void syncRecords(); else setRecords([]); }, [session?.user.id]);
+  useEffect(() => { if (session) { void syncRecords(); void flushOfflineQueue(); } else setRecords([]); }, [session?.user.id]);
 
-  const filteredRecords = useMemo(() => { const needle = query.trim().toLowerCase(); if (!needle) return records; return records.filter((item) => Object.values(item).some((value) => String(value).toLowerCase().includes(needle))); }, [query, records]);
+  useEffect(() => {
+    const onOnline = () => void flushOfflineQueue();
+    window.addEventListener("online", onOnline);
+    return () => window.removeEventListener("online", onOnline);
+  }, [session]);
+
+  function enqueueOffline(op: OfflineOp) {
+    const queue = readOfflineQueue();
+    if (op.type === "insert" && op.payload) {
+      const tempId = -Date.now();
+      const optimistic = { id: tempId, ...optimisticFields(op.payload) } as RecordItem;
+      setRecords((current) => [optimistic, ...current]);
+      writeOfflineQueue([...queue, { ...op, tempId }]);
+    } else {
+      if (op.id && op.payload) {
+        setRecords((current) => current.map((item) => item.id === op.id ? { ...item, ...optimisticFields(op.payload!) } : item));
+      }
+      writeOfflineQueue([...queue, op]);
+    }
+  }
+
+  function enqueueOfflineDelete(id: number) {
+    setRecords((current) => current.filter((item) => item.id !== id));
+    writeOfflineQueue([...readOfflineQueue(), { type: "delete", id }]);
+  }
+
+  async function flushOfflineQueue() {
+    if (!supabase || !session) return;
+    const queue = readOfflineQueue();
+    if (!queue.length) return;
+    const failed: OfflineOp[] = [];
+    let synced = 0;
+    for (const op of queue) {
+      if (op.type === "delete" && op.id) {
+        const { error } = await supabase.from("license_records").delete().eq("id", op.id);
+        if (error) failed.push(op); else { synced++; setRecords((current) => current.filter((item) => item.id !== op.id)); }
+      } else if (op.payload) {
+        const result = op.type === "update" && op.id ? await supabase.from("license_records").update(op.payload).eq("id", op.id).select().single() : await supabase.from("license_records").insert(op.payload).select().single();
+        if (result.error) failed.push(op);
+        else { synced++; const saved = toLicenseRecord(result.data as LicenseRecordRow); setRecords((current) => op.tempId ? current.map((item) => item.id === op.tempId ? saved : item) : op.id ? current.map((item) => item.id === op.id ? saved : item) : current); }
+      }
+    }
+    writeOfflineQueue(failed);
+    if (synced) toast.success(`تمت مزامنة ${synced} عملية محفوظة محلياً`);
+    if (failed.length) toast.error(`لم تُزامَن ${failed.length} عملية — سنعيد المحاولة لاحقاً`);
+  }
+
+  const filteredRecords = useMemo(() => {
+    const needle = query.trim().toLowerCase();
+    return records.filter((item) => {
+      const matchesSearch = !needle || [item.name, item.phone, item.registrationNumber, item.idCard].some((value) => String(value || "").toLowerCase().includes(needle));
+      const matchesCategory = !filterCategory || item.category === filterCategory;
+      const matchesResult = !filterResult || (item.result || "") === filterResult;
+      return matchesSearch && matchesCategory && matchesResult;
+    });
+  }, [query, records, filterCategory, filterResult]);
   const stats = useMemo(() => ({ total: records.length, passed: records.filter((item) => item.result === "ناجح").length, pending: records.filter((item) => item.result === "قيد المعالجة").length, failed: records.filter((item) => item.result === "راسب").length }), [records]);
+  const upcomingExams = useMemo(() => {
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    const horizon = new Date(today); horizon.setDate(horizon.getDate() + 7);
+    return records.filter((item) => {
+      if (!item.exam) return false;
+      const when = new Date(`${item.exam}T00:00:00`);
+      return when >= today && when <= horizon;
+    });
+  }, [records]);
   const activeSectionMeta = sectionMeta[activeSection];
 
   async function submitAuth(event: FormEvent) {
@@ -102,18 +203,22 @@ export default function Home() {
     setPhotoUploading(false);
   }
 
-  async function removePhoto(item: RecordItem) {
-    if (!supabase || !item.photoUrl || !window.confirm("هل تريد إزالة صورة هذا المترشح؟")) return;
+  async function removePhoto(item: RecordItem) { setConfirmAction({ kind: "remove-photo", item }); }
+
+  async function performRemovePhoto(item: RecordItem) {
+    if (!supabase) return;
+    setConfirmBusy(true);
     if (item.photoKey) {
       const storageResult = await supabase.storage.from("candidate-photos").remove([item.photoKey]);
-      if (storageResult.error) { toast.error("تعذر إزالة الصورة من التخزين"); return; }
+      if (storageResult.error) { toast.error("تعذر إزالة الصورة من التخزين"); setConfirmBusy(false); setConfirmAction(null); return; }
     }
     const result = await supabase.from("license_records").update({ photo_url: null, photo_key: null, updated_at: new Date().toISOString() }).eq("id", item.id).select().single();
-    if (result.error) { toast.error("تعذر تحديث سجل الصورة"); return; }
+    if (result.error) { toast.error("تعذر تحديث سجل الصورة"); setConfirmBusy(false); setConfirmAction(null); return; }
     const updated = toLicenseRecord(result.data as LicenseRecordRow);
     setRecords((current) => current.map((record) => record.id === item.id ? updated : record));
     setViewingRecord((current) => current?.id === item.id ? updated : current);
     toast.success("تمت إزالة صورة المترشح");
+    setConfirmBusy(false); setConfirmAction(null);
   }
 
   function updatePayment(field: "totalAmount" | "firstPayment" | "secondPayment", value: string) { setForm((current) => { const next = { ...current, [field]: Math.max(0, Number(value) || 0) }; next.remainingAmount = calculateRemaining(next.totalAmount, next.firstPayment, next.secondPayment); return next; }); }
@@ -121,12 +226,45 @@ export default function Home() {
   async function saveRecord(event: FormEvent) {
     event.preventDefault(); if (!supabase || !session) return;
     if (!form.registrationNumber.trim() || !form.name.trim() || !form.registrationDate) { toast.error("يرجى إدخال رقم التسجيل والاسم وتاريخ التسجيل"); return; }
-    const payload = toLicensePayload(form); const result = editingId ? await supabase.from("license_records").update(payload).eq("id", editingId).select().single() : await supabase.from("license_records").insert(payload).select().single();
-    if (result.error) toast.error(result.error.code === "23505" ? "رقم التسجيل مستخدم من قبل" : "تعذر حفظ البيانات");
-    else { const saved = toLicenseRecord(result.data as LicenseRecordRow); setRecords((current) => editingId ? current.map((item) => item.id === editingId ? saved : item) : [saved, ...current]); setIsFormOpen(false); toast.success(editingId ? "تم تحديث بيانات المترشح" : "تم حفظ بيانات المترشح"); }
+    const payload = toLicensePayload(form);
+    let result;
+    try {
+      result = editingId ? await supabase.from("license_records").update(payload).eq("id", editingId).select().single() : await supabase.from("license_records").insert(payload).select().single();
+    } catch (error) {
+      enqueueOffline(editingId ? { type: "update", id: editingId, payload } : { type: "insert", payload });
+      setIsFormOpen(false);
+      toast.warning("تعذر الاتصال — حُفظت البيانات محلياً وستُزامَن تلقائياً");
+      return;
+    }
+    if (result.error) {
+      if (result.error.code === "23505") toast.error("رقم التسجيل مستخدم من قبل");
+      else if (isOfflineError(result.error)) { enqueueOffline(editingId ? { type: "update", id: editingId, payload } : { type: "insert", payload }); setIsFormOpen(false); toast.warning("تعذر الاتصال — حُفظت البيانات محلياً وستُزامَن تلقائياً"); }
+      else toast.error("تعذر حفظ البيانات");
+    } else {
+      const saved = toLicenseRecord(result.data as LicenseRecordRow);
+      setRecords((current) => editingId ? current.map((item) => item.id === editingId ? saved : item) : [saved, ...current]);
+      setIsFormOpen(false);
+      toast.success(editingId ? "تم تحديث بيانات المترشح" : "تم حفظ بيانات المترشح");
+    }
   }
 
-  async function removeRecord(id: number) { if (!supabase || !window.confirm("هل تريد حذف هذا السجل نهائيًا؟")) return; const { error } = await supabase.from("license_records").delete().eq("id", id); if (error) toast.error("تعذر حذف السجل"); else { setRecords((current) => current.filter((item) => item.id !== id)); toast.success("تم حذف السجل"); } }
+  function removeRecord(id: number) { const item = records.find((record) => record.id === Number(id)); setConfirmAction({ kind: "delete", id: Number(id), name: item?.name || "" }); }
+
+  async function performDelete(id: number) {
+    if (!supabase) return;
+    setConfirmBusy(true);
+    const { error } = await supabase.from("license_records").delete().eq("id", id);
+    if (error) {
+      if (isOfflineError(error)) {
+        enqueueOfflineDelete(id);
+        toast.warning("تعذر الاتصال — سُجّل الحذف محلياً وسيُطبّق تلقائياً");
+      } else toast.error("تعذر حذف السجل");
+      setConfirmBusy(false); setConfirmAction(null); return;
+    }
+    setRecords((current) => current.filter((item) => item.id !== id));
+    toast.success("تم حذف السجل");
+    setConfirmBusy(false); setConfirmAction(null);
+  }
 
   async function logout() { if (supabase) await supabase.auth.signOut(); }
   function exportCsv() { const header = ["رقم التسجيل", "تاريخ التسجيل", "الاسم واللقب", "تاريخ الميلاد", "رقم الهاتف", "رقم بطاقة التعريف", "رقم العربة", "فئة الرخصة", "الثمن الإجمالي (درهم)", "الدفعة الأولى (درهم)", "الدفعة الثانية (درهم)", "الباقي (درهم)", "تاريخ الامتحان الأول", "النتيجة", "تاريخ الامتحان الثاني", "نتيجة الامتحان الثاني", "ملاحظات"]; const rows = records.map((item) => [item.registrationNumber, formatDisplayDate(item.registrationDate), item.name, formatDisplayDate(item.birth), item.phone, item.idCard, item.vehicleNumber, item.category, formatMoney(item.totalAmount), formatMoney(item.firstPayment), formatMoney(item.secondPayment), formatMoney(item.remainingAmount), formatDisplayDate(item.exam), item.result, formatDisplayDate(item.secondExamDate), item.secondResult, item.notes]); const csv = "\ufeff" + [header, ...rows].map((row) => row.map((cell) => `"${String(cell).replaceAll('"', '""')}"`).join(",")).join("\n"); const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" })); const anchor = document.createElement("a"); anchor.href = url; anchor.download = "سجل_المترشحين.csv"; anchor.click(); URL.revokeObjectURL(url); }
@@ -138,9 +276,9 @@ export default function Home() {
   return <div className="min-h-screen bg-[#f5f2eb] text-[#173840]" dir="rtl">
     <aside className="fixed inset-y-0 right-0 z-20 hidden w-[270px] flex-col bg-[#0d3943] text-white lg:flex"><div className="border-b border-white/10 px-7 py-7"><div className="flex items-center gap-3"><img src={LOGO_URL} alt="شعار المدرسة" className="h-12 w-12 rounded-xl object-cover shadow-sm" /><div><div className="font-bold">سيارة التعليم الكتبية</div><div className="mt-1 text-[11px] text-[#a9c8c5]">السجل الرقمي</div></div></div></div><div className="px-5 py-7"><p className="mb-3 px-3 text-[10px] font-bold uppercase tracking-[0.18em] text-[#8db4b1]">مساحة العمل</p><nav className="space-y-2"><button type="button" onClick={() => setActiveSection("home")} className={`nav-item ${isSectionActive(activeSection, "home") ? "nav-active" : ""}`}><House size={18} /> الرئيسية</button><div><button type="button" onClick={() => setActiveSection("candidates")} className={`nav-item ${isSectionActive(activeSection, "candidates") ? "nav-active" : ""}`}><Users size={18} /> المترشحون <ChevronDown size={14} className={`mr-auto transition-transform ${activeSection === "candidates" ? "rotate-180" : ""}`} /></button>{activeSection === "candidates" && <div className="mt-1 space-y-1 pr-3"><button type="button" onClick={() => openNew()} className="nav-item nav-sub"><UserPlus size={16} /> إضافة مترشح</button><button type="button" onClick={() => { setActiveSection("candidates"); setCandidatesView("list"); }} className={`nav-item nav-sub ${activeSection === "candidates" && candidatesView === "list" ? "nav-active" : ""}`}><Users size={16} /> جميع المترشحين</button><button type="button" onClick={() => { setActiveSection("candidates"); setCandidatesView("calendar"); }} className={`nav-item nav-sub ${activeSection === "candidates" && candidatesView === "calendar" ? "nav-active" : ""}`}><CalendarDays size={16} /> تقويم الامتحانات</button></div>}</div><button type="button" onClick={() => setActiveSection("reports")} className={`nav-item ${isSectionActive(activeSection, "reports") ? "nav-active" : ""}`}><BarChart3 size={18} /> التقارير</button></nav></div><div className="mt-auto px-6 pb-7"><div className="rounded-2xl border border-white/20 bg-white/5 p-4"><p className="truncate text-xs font-semibold">{session.user.user_metadata?.full_name || session.user.email}</p><p className="mt-1 text-[10px] text-[#a9c8c5]">جلسة Supabase مفعّلة</p><button type="button" onClick={() => void logout()} className="mt-4 w-full rounded-xl border border-white/15 px-3 py-2 text-xs font-semibold text-[#d7e8e5] transition hover:bg-white/10">تسجيل الخروج</button></div></div></aside>
     <main className="lg:mr-[270px]">{isMobileMenuOpen && <><div className="fixed inset-0 z-20 bg-[#09252b]/20 backdrop-blur-sm lg:hidden" onClick={() => setIsMobileMenuOpen(false)} aria-hidden="true" /><div className="fixed right-4 top-[78px] z-30 w-64 rounded-2xl border border-[#e5ded2] bg-white p-3 shadow-2xl lg:hidden"><button type="button" onClick={() => { setActiveSection("home"); setIsMobileMenuOpen(false); }} className={`nav-item w-full ${isSectionActive(activeSection, "home") ? "nav-active" : ""}`}><House size={17} /> الرئيسية</button><button type="button" onClick={() => { setActiveSection("candidates"); setIsMobileMenuOpen(false); }} className={`nav-item w-full ${isSectionActive(activeSection, "candidates") ? "nav-active" : ""}`}><Users size={17} /> المترشحون</button>{activeSection === "candidates" && <><button type="button" onClick={() => { setIsMobileMenuOpen(false); openNew(); }} className="nav-item w-full nav-sub"><UserPlus size={16} /> إضافة مترشح</button><button type="button" onClick={() => { setCandidatesView("list"); setIsMobileMenuOpen(false); }} className="nav-item w-full nav-sub"><Users size={16} /> جميع المترشحين</button><button type="button" onClick={() => { setCandidatesView("calendar"); setIsMobileMenuOpen(false); }} className="nav-item w-full nav-sub"><CalendarDays size={16} /> تقويم الامتحانات</button></>}<button type="button" onClick={() => { setActiveSection("reports"); setIsMobileMenuOpen(false); }} className={`nav-item w-full ${isSectionActive(activeSection, "reports") ? "nav-active" : ""}`}><BarChart3 size={17} /> التقارير</button></div></>}<header className="sticky top-0 z-10 border-b border-[#e5ded2] bg-[#fbfaf7]/95 px-5 py-4 backdrop-blur sm:px-8 lg:px-12"><div className="flex items-center justify-between gap-4"><div className="flex items-center gap-3"><button type="button" onClick={() => setIsMobileMenuOpen((open) => toggleMenu(open))} className="icon-button lg:hidden" aria-label="القائمة" aria-expanded={isMobileMenuOpen}><Menu size={19} /></button><div><p className="text-[11px] font-bold tracking-[0.15em] text-[#e8793a]">{activeSectionMeta.eyebrow}</p><h1 className="mt-1 text-2xl font-bold">{activeSectionMeta.title} <span className="font-normal text-[#8c9a99]">/ {activeSectionMeta.subtitle}</span></h1></div></div><div className="flex items-center gap-2"><button type="button" onClick={() => void syncRecords(true)} disabled={syncing} className="secondary-button"><RefreshCw size={16} className={syncing ? "animate-spin" : ""} /><span className="hidden sm:inline">{syncing ? "جارٍ المزامنة" : "مزامنة البيانات"}</span></button><button type="button" onClick={openNew} className="primary-button"><Plus size={17} /> <span>حفظ مترشح</span></button></div></div></header>
-      {activeSection === "reports" ? <ReportsView stats={stats} records={records} /> : activeSection === "home" ? <WelcomeView /> : activeSection === "candidates" && candidatesView === "calendar" ? <ExamCalendarView records={records} /> : <div className="mx-auto max-w-[1500px] px-5 py-7 sm:px-8 lg:px-12 lg:py-10"><div className="mb-8 flex flex-col justify-between gap-4 sm:flex-row sm:items-end"><div><p className="mb-2 flex items-center gap-2 text-sm text-[#7c8d8d]"><span className={`direction-dot ${connectionError ? "offline-dot" : ""}`} />{connectionError || "متصل بقاعدة البيانات"}{connectionError && <button type="button" onClick={() => void syncRecords(true)} className="mr-3 font-bold text-[#e8793a] underline">إعادة المحاولة</button>}</p><h2 className="text-3xl font-bold tracking-tight">جميع المترشحين <span className="inline-block h-2 w-2 rounded-full bg-[#e8793a] align-middle" /></h2></div></div><section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4"><StatCard label="إجمالي المترشحين" value={stats.total} detail="كل الملفات المسجلة" icon={Archive} tone="navy" /><StatCard label="ناجحون" value={stats.passed} detail="نتيجة الامتحان" icon={Check} tone="green" /><StatCard label="قيد المعالجة" value={stats.pending} detail="تحتاج متابعة" icon={ClipboardList} tone="orange" /><StatCard label="إعادات الامتحان" value={stats.failed} detail="ملفات راسبة" icon={UserRound} tone="sand" /></section><section className="mt-8 overflow-hidden rounded-[22px] border border-[#e4ded4] bg-white shadow-[0_12px_40px_rgba(30,60,62,0.055)]"><div className="lane-divider" /><div className="flex flex-col gap-4 border-b border-[#eee9e1] px-5 py-5 sm:flex-row sm:items-center sm:justify-between sm:px-7"><div><h3 className="text-lg font-bold">سجل المترشحين</h3><p className="mt-1 text-xs text-[#8b9998]">بيانات محفوظة ومزامنة مباشرة مع Supabase</p></div><div className="flex items-center gap-3"><div className="relative flex-1 sm:w-72"><Search className="absolute right-3 top-1/2 -translate-y-1/2 text-[#8fa0a0]" size={16} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="ابحث بالاسم أو رقم التسجيل..." className="h-10 w-full rounded-xl border border-[#e6e0d7] bg-[#fbfaf7] pr-10 pl-3 text-sm outline-none focus:border-[#e8793a]" /></div><button type="button" onClick={openNew} className="icon-button" aria-label="إضافة مترشح"><Plus size={19} /></button></div></div><CandidateTable records={filteredRecords} loading={loading} openNew={openNew} removePhoto={removePhoto} setViewingRecord={setViewingRecord} openEdit={openEdit} removeRecord={removeRecord} /><div className="flex justify-between border-t border-[#eee9e1] px-7 py-4 text-xs text-[#8b9998]"><span>عرض {filteredRecords.length} من {records.length} سجلات</span><button type="button" onClick={exportCsv} className="flex items-center gap-2 font-semibold text-[#e8793a]"><FileSpreadsheet size={15} /> تنزيل نسخة Excel</button></div></section></div>}
+      {activeSection === "reports" ? <ReportsView stats={stats} records={records} /> : activeSection === "home" ? <WelcomeView /> : activeSection === "candidates" && candidatesView === "calendar" ? <ExamCalendarView records={records} /> : <div className="mx-auto max-w-[1500px] px-5 py-7 sm:px-8 lg:px-12 lg:py-10"><div className="mb-8 flex flex-col justify-between gap-4 sm:flex-row sm:items-end"><div><p className="mb-2 flex items-center gap-2 text-sm text-[#7c8d8d]"><span className={`direction-dot ${connectionError ? "offline-dot" : ""}`} />{connectionError || "متصل بقاعدة البيانات"}{connectionError && <button type="button" onClick={() => void syncRecords(true)} className="mr-3 font-bold text-[#e8793a] underline">إعادة المحاولة</button>}</p><h2 className="text-3xl font-bold tracking-tight">جميع المترشحين <span className="inline-block h-2 w-2 rounded-full bg-[#e8793a] align-middle" /></h2></div></div><section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4"><StatCard label="إجمالي المترشحين" value={stats.total} detail="كل الملفات المسجلة" icon={Archive} tone="navy" /><StatCard label="ناجحون" value={stats.passed} detail="نتيجة الامتحان" icon={Check} tone="green" /><StatCard label="قيد المعالجة" value={stats.pending} detail="تحتاج متابعة" icon={ClipboardList} tone="orange" /><StatCard label="إعادات الامتحان" value={stats.failed} detail="ملفات راسبة" icon={UserRound} tone="sand" /></section>{upcomingExams.length > 0 && <section className="mt-6 flex items-center gap-3 rounded-2xl border border-[#f4d8c3] bg-[#fff7ef] px-4 py-3 text-sm text-[#8f4d24]"><span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#fff1e0] text-[#b65d2f]"><CalendarDays size={17} /></span><div><strong>{upcomingExams.length} امتحان خلال الأيام السبعة القادمة</strong><div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-xs text-[#a06a3f]">{upcomingExams.slice(0, 5).map((item) => <span key={item.id}>{item.name} <b>·</b> {formatDisplayDate(item.exam)} <b>·</b> {daysLabel(item.exam)}</span>)}</div></div></section>}<section className="mt-6 flex flex-col gap-3 rounded-2xl border border-[#eee7db] bg-[#fbfaf7] px-4 py-4 sm:flex-row sm:items-end"><div className="grid flex-1 grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3"><label className="block lg:col-span-2"><span className="field-label">فئة الرخصة</span><select value={filterCategory} onChange={(event) => setFilterCategory(event.target.value)} className="field-input"><option value="">كل الفئات</option>{["A", "A1", "B", "C", "D", "E"].map((option) => <option key={option} value={option}>{option}</option>)}</select></label><label className="block"><span className="field-label">النتيجة</span><select value={filterResult} onChange={(event) => setFilterResult(event.target.value)} className="field-input"><option value="">كل الحالات</option>{["ناجح", "راسب", "قيد المعالجة"].map((option) => <option key={option} value={option}>{option}</option>)}</select></label></div>{(filterCategory || filterResult || query.trim()) && <button type="button" onClick={() => { setQuery(""); setFilterCategory(""); setFilterResult(""); }} className="secondary-button shrink-0 justify-center"><X size={14} /> إعادة تعيين</button>}</section><section className="mt-8 overflow-hidden rounded-[22px] border border-[#e4ded4] bg-white shadow-[0_12px_40px_rgba(30,60,62,0.055)]"><div className="lane-divider" /><div className="flex flex-col gap-4 border-b border-[#eee9e1] px-5 py-5 sm:flex-row sm:items-center sm:justify-between sm:px-7"><div><h3 className="text-lg font-bold">سجل المترشحين</h3><p className="mt-1 text-xs text-[#8b9998]">بيانات محفوظة ومزامنة مباشرة مع Supabase</p></div><div className="flex items-center gap-3"><div className="relative flex-1 sm:w-72"><Search className="absolute right-3 top-1/2 -translate-y-1/2 text-[#8fa0a0]" size={16} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="ابحث بالاسم أو رقم التسجيل..." className="h-10 w-full rounded-xl border border-[#e6e0d7] bg-[#fbfaf7] pr-10 pl-3 text-sm outline-none focus:border-[#e8793a]" /></div><button type="button" onClick={openNew} className="icon-button" aria-label="إضافة مترشح"><Plus size={19} /></button></div></div><CandidateTable records={filteredRecords} loading={loading} openNew={openNew} removePhoto={removePhoto} setViewingRecord={setViewingRecord} openEdit={openEdit} removeRecord={removeRecord} /><div className="flex justify-between border-t border-[#eee9e1] px-7 py-4 text-xs text-[#8b9998]"><span>عرض {filteredRecords.length} من {records.length} سجلات</span><button type="button" onClick={exportCsv} className="flex items-center gap-2 font-semibold text-[#e8793a]"><FileSpreadsheet size={15} /> تنزيل نسخة Excel</button></div></section></div>}
     </main>
-    {viewingRecord && <CandidateCard record={viewingRecord} close={() => setViewingRecord(null)} />}{isFormOpen && <RecordModal form={form} setForm={setForm} editingId={editingId} photoUploading={photoUploading} handlePhotoChange={handlePhotoChange} updatePayment={updatePayment} saveRecord={saveRecord} close={() => setIsFormOpen(false)} />}
+    {viewingRecord && <CandidateCard record={viewingRecord} close={() => setViewingRecord(null)} />}{isFormOpen && <RecordModal form={form} setForm={setForm} editingId={editingId} photoUploading={photoUploading} handlePhotoChange={handlePhotoChange} updatePayment={updatePayment} saveRecord={saveRecord} close={() => setIsFormOpen(false)} />}{confirmAction && <ConfirmDialog open title={confirmAction.kind === "delete" ? "حذف المترشح" : "إزالة الصورة"} message={confirmAction.kind === "delete" ? `هل تريد حذف سجل المترشح ${confirmAction.name ? `"${confirmAction.name}"` : ""} نهائيًا؟ لا يمكن التراجع عن هذا الإجراء.` : "هل تريد إزالة صورة هذا المترشح؟"} confirmLabel={confirmAction.kind === "delete" ? "حذف نهائي" : "إزالة"} busy={confirmBusy} onConfirm={() => { if (confirmAction.kind === "delete") void performDelete(confirmAction.id); else void performRemovePhoto(confirmAction.item); }} onCancel={() => setConfirmAction(null)} />}
   </div>;
 }
 
@@ -177,6 +315,6 @@ function SetupScreen() { return <div className="flex min-h-screen items-center j
 function AuthLoading() { return <div className="flex min-h-screen items-center justify-center bg-[#f5f2eb] text-[#36585d]" dir="rtl"><span className="loading-spinner ml-3" /> جارٍ التحقق من جلسة الدخول...</div>; }
 function StatCard({ label, value, detail, icon: Icon, tone }: { label: string; value: number; detail: string; icon: typeof Archive; tone: string }) { return <div className={`stat-card tone-${tone}`}><div className="flex items-start justify-between"><span className="text-sm text-[#7c8d8d]">{label}</span><Icon size={18} /></div><div className="mt-3 text-3xl font-black">{String(value).padStart(2, "0")}</div><div className="mt-2 text-xs text-[#9aa7a5]">{detail}</div></div>; }
 function ResultBadge({ value }: { value: string }) { return <span className={`result-badge ${value === "ناجح" ? "result-pass" : value === "راسب" ? "result-fail" : "result-pending"}`}>{value}</span>; }
-function RecordModal({ form, setForm, editingId, photoUploading, handlePhotoChange, updatePayment, saveRecord, close }: { form: FormState; setForm: React.Dispatch<React.SetStateAction<FormState>>; editingId: number | null; photoUploading: boolean; handlePhotoChange: (event: ChangeEvent<HTMLInputElement>) => void; updatePayment: (field: "totalAmount" | "firstPayment" | "secondPayment", value: string) => void; saveRecord: (event: FormEvent) => void; close: () => void }) { return <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#09252b]/45 p-4"><form onSubmit={saveRecord} className="max-h-[94vh] w-full max-w-3xl overflow-y-auto rounded-[24px] bg-[#fbfaf7] shadow-2xl"><div className="sticky top-0 z-10 flex items-start justify-between border-b border-[#e9e2d8] bg-[#fbfaf7] px-6 py-5"><div><p className="text-[11px] font-bold text-[#e8793a]">{editingId ? "تعديل السجل" : "تسجيل مترشح جديد"}</p><h3 className="mt-1 text-xl font-bold">{editingId ? "تحديث بيانات المترشح" : "إضافة بيانات إلى السجل"}</h3></div><button type="button" onClick={close} className="icon-button" aria-label="إغلاق"><X size={18} /></button></div><div className="grid gap-5 px-6 py-6 sm:grid-cols-2"><div className="sm:col-span-2 flex flex-col items-center gap-3 rounded-2xl border border-dashed border-[#e7d9cc] bg-[#fffaf5] p-5"><div className="relative">{form.photoUrl ? <img src={form.photoUrl} alt="معاينة صورة المترشح" className="h-28 w-28 rounded-2xl object-cover" loading="lazy" decoding="async" width={112} height={112} /> : <div className="flex h-28 w-28 items-center justify-center rounded-2xl bg-[#e9f0ed] text-3xl font-bold text-[#5f7c7c]">{initials(form.name)}</div>}<label className="absolute -bottom-2 -left-2 flex h-9 w-9 cursor-pointer items-center justify-center rounded-full bg-[#e8793a] text-white" title="فتح كاميرا الهاتف" aria-label="فتح كاميرا الهاتف"><Camera size={17} /><input type="file" accept="image/jpeg,image/png,image/webp" capture="environment" onChange={handlePhotoChange} className="hidden" /></label></div><div className="flex flex-wrap items-center justify-center gap-2"><label className="secondary-button cursor-pointer text-xs"><Images size={15} /> اختيار من الملفات<input type="file" accept="image/jpeg,image/png,image/webp" onChange={handlePhotoChange} className="hidden" /></label></div><p className="text-xs text-[#8b9998]">صورة المترشح — الكاميرا أو JPG/PNG/WebP (5MB)</p>{photoUploading && <p className="text-xs font-semibold text-[#e8793a]">جارٍ رفع الصورة...</p>}</div><Field label="الاسم واللقب" required value={form.name} onChange={(value) => setForm({ ...form, name: value })} placeholder="مثال: محمد بن علي" /><Field label="تاريخ الميلاد" type="date" value={form.birth} onChange={(value) => setForm({ ...form, birth: value })} /><Field label="رقم الهاتف" value={form.phone} onChange={(value) => setForm({ ...form, phone: value })} /><Field label="رقم بطاقة التعريف الوطنية" value={form.idCard} onChange={(value) => setForm({ ...form, idCard: value })} /><Field label="رقم التسجيل" required value={form.registrationNumber} onChange={(value) => setForm({ ...form, registrationNumber: value })} /><Field label="تاريخ التسجيل" type="date" required value={form.registrationDate} onChange={(value) => setForm({ ...form, registrationDate: value })} /><SelectField label="رقم العربة (اختياري)" value={form.vehicleNumber} options={["", "48040-د-26", "50529-د-26"]} onChange={(value) => setForm({ ...form, vehicleNumber: value as FormState["vehicleNumber"] })} /><SelectField label="فئة الرخصة" value={form.category} options={["A", "A1", "B", "C", "D", "E"]} onChange={(value) => setForm({ ...form, category: value })} /><Field label="الثمن الإجمالي (درهم)" type="number" value={String(form.totalAmount)} onChange={(value) => updatePayment("totalAmount", value)} /><Field label="الدفعة الأولى (درهم)" type="number" value={String(form.firstPayment)} onChange={(value) => updatePayment("firstPayment", value)} /><Field label="الدفعة الثانية (درهم)" type="number" value={String(form.secondPayment)} onChange={(value) => updatePayment("secondPayment", value)} /><Field label="الباقي (درهم)" type="number" value={String(form.remainingAmount)} onChange={() => undefined} /><Field label="تاريخ الامتحان الأول" type="date" value={form.exam} onChange={(value) => setForm({ ...form, exam: value })} /><SelectField label="نتيجة الامتحان الأول" value={form.result} options={["ناجح", "راسب", "قيد المعالجة"]} onChange={(value) => setForm({ ...form, result: value as Result })} /><Field label="تاريخ الامتحان الثاني (اختياري)" type="date" value={form.secondExamDate} onChange={(value) => setForm({ ...form, secondExamDate: value })} /><SelectField label="نتيجة الامتحان الثاني (اختياري)" value={form.secondResult} options={["", "ناجح", "راسب", "قيد المعالجة"]} onChange={(value) => setForm({ ...form, secondResult: value as FormState["secondResult"] })} /><div className="sm:col-span-2"><label className="field-label">ملاحظات</label><textarea value={form.notes} onChange={(event) => setForm({ ...form, notes: event.target.value })} rows={3} className="field-input resize-none" /></div></div><div className="flex justify-end gap-3 border-t border-[#e9e2d8] bg-white px-6 py-4"><button type="button" onClick={close} className="secondary-button">إلغاء</button><button type="submit" disabled={photoUploading} className="primary-button"><Check size={16} /> حفظ البيانات</button></div></form></div>; }
+function RecordModal({ form, setForm, editingId, photoUploading, handlePhotoChange, updatePayment, saveRecord, close }: { form: FormState; setForm: React.Dispatch<React.SetStateAction<FormState>>; editingId: number | null; photoUploading: boolean; handlePhotoChange: (event: ChangeEvent<HTMLInputElement>) => void; updatePayment: (field: "totalAmount" | "firstPayment" | "secondPayment", value: string) => void; saveRecord: (event: FormEvent) => void; close: () => void }) { return <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#09252b]/45 p-4"><form onSubmit={saveRecord} className="max-h-[94vh] w-full max-w-3xl overflow-y-auto rounded-[24px] bg-[#fbfaf7] shadow-2xl"><div className="sticky top-0 z-10 flex items-start justify-between border-b border-[#e9e2d8] bg-[#fbfaf7] px-6 py-5"><div><p className="text-[11px] font-bold text-[#e8793a]">{editingId ? "تعديل السجل" : "تسجيل مترشح جديد"}</p><h3 className="mt-1 text-xl font-bold">{editingId ? "تحديث بيانات المترشح" : "إضافة بيانات إلى السجل"}</h3></div><button type="button" onClick={close} className="icon-button" aria-label="إغلاق"><X size={18} /></button></div><div className="grid gap-5 px-6 py-6 sm:grid-cols-2"><div className="sm:col-span-2 flex flex-col items-center gap-3 rounded-2xl border border-dashed border-[#e7d9cc] bg-[#fffaf5] p-5"><div className="relative">{form.photoUrl ? <img src={form.photoUrl} alt="معاينة صورة المترشح" className="h-28 w-28 rounded-2xl object-cover" loading="lazy" decoding="async" width={112} height={112} /> : <div className="flex h-28 w-28 items-center justify-center rounded-2xl bg-[#e9f0ed] text-3xl font-bold text-[#5f7c7c]">{initials(form.name)}</div>}<label className="absolute -bottom-2 -left-2 flex h-9 w-9 cursor-pointer items-center justify-center rounded-full bg-[#e8793a] text-white" title="فتح كاميرا الهاتف" aria-label="فتح كاميرا الهاتف"><Camera size={17} /><input type="file" accept="image/jpeg,image/png,image/webp" capture="environment" onChange={handlePhotoChange} className="hidden" /></label></div><div className="flex flex-wrap items-center justify-center gap-2"><label className="secondary-button cursor-pointer text-xs"><Images size={15} /> اختيار من الملفات<input type="file" accept="image/jpeg,image/png,image/webp" onChange={handlePhotoChange} className="hidden" /></label></div><p className="text-xs text-[#8b9998]">صورة المترشح — الكاميرا أو JPG/PNG/WebP (5MB)</p>{photoUploading && <p className="text-xs font-semibold text-[#e8793a]">جارٍ رفع الصورة...</p>}</div><Field label="الاسم واللقب" required value={form.name} onChange={(value) => setForm({ ...form, name: value })} placeholder="مثال: محمد بن علي" /><Field label="تاريخ الميلاد" type="date" value={form.birth} onChange={(value) => setForm({ ...form, birth: value })} /><Field label="رقم الهاتف" value={form.phone} onChange={(value) => setForm({ ...form, phone: value })} /><Field label="رقم بطاقة التعريف الوطنية" value={form.idCard} onChange={(value) => setForm({ ...form, idCard: value })} /><Field label="رقم التسجيل" required value={form.registrationNumber} onChange={(value) => setForm({ ...form, registrationNumber: value })} /><Field label="تاريخ التسجيل" type="date" required value={form.registrationDate} onChange={(value) => setForm({ ...form, registrationDate: value })} /><SelectField label="رقم العربة (اختياري)" value={form.vehicleNumber} options={["", "48040-د-26", "50529-د-26"]} onChange={(value) => setForm({ ...form, vehicleNumber: value as FormState["vehicleNumber"] })} /><SelectField label="فئة الرخصة" value={form.category} options={["A", "A1", "B", "C", "D", "E"]} onChange={(value) => setForm({ ...form, category: value })} /><Field label="الثمن الإجمالي (درهم)" type="number" value={String(form.totalAmount)} onChange={(value) => updatePayment("totalAmount", value)} /><Field label="الدفعة الأولى (درهم)" type="number" value={String(form.firstPayment)} onChange={(value) => updatePayment("firstPayment", value)} /><Field label="الدفعة الثانية (درهم)" type="number" value={String(form.secondPayment)} onChange={(value) => updatePayment("secondPayment", value)} /><Field label="الباقي (درهم)" type="number" value={String(form.remainingAmount)} onChange={() => undefined} />{form.totalAmount > 0 && form.firstPayment + form.secondPayment > form.totalAmount && <div className="sm:col-span-2 flex items-center gap-2 rounded-xl bg-[#fbe9e6] px-3 py-2.5 text-xs font-bold text-[#a64e46]"><span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#f7d5cf] text-[11px]">!</span> المدفوعات (الدفعة الأولى + الثانية) تجاوزت الثمن الإجمالي.</div>}<Field label="تاريخ الامتحان الأول" type="date" value={form.exam} onChange={(value) => setForm({ ...form, exam: value })} /><SelectField label="نتيجة الامتحان الأول" value={form.result} options={["ناجح", "راسب", "قيد المعالجة"]} onChange={(value) => setForm({ ...form, result: value as Result })} /><Field label="تاريخ الامتحان الثاني (اختياري)" type="date" value={form.secondExamDate} onChange={(value) => setForm({ ...form, secondExamDate: value })} /><SelectField label="نتيجة الامتحان الثاني (اختياري)" value={form.secondResult} options={["", "ناجح", "راسب", "قيد المعالجة"]} onChange={(value) => setForm({ ...form, secondResult: value as FormState["secondResult"] })} /><div className="sm:col-span-2"><label className="field-label">ملاحظات</label><textarea value={form.notes} onChange={(event) => setForm({ ...form, notes: event.target.value })} rows={3} className="field-input resize-none" /></div></div><div className="flex justify-end gap-3 border-t border-[#e9e2d8] bg-white px-6 py-4"><button type="button" onClick={close} className="secondary-button">إلغاء</button><button type="submit" disabled={photoUploading} className="primary-button"><Check size={16} /> حفظ البيانات</button></div></form></div>; }
 function Field({ label, value, onChange, type = "text", required = false, placeholder = "" }: { label: string; value: string; onChange: (value: string) => void; type?: string; required?: boolean; placeholder?: string }) { return <label className="block"><span className="field-label">{label}{required && <b className="mr-1 text-[#e8793a]">*</b>}</span><input type={type} required={required} value={value} onChange={(event) => onChange(event.target.value)} placeholder={placeholder} className="field-input" /></label>; }
 function SelectField({ label, value, options, onChange }: { label: string; value: string; options: string[]; onChange: (value: string) => void }) { return <label className="block"><span className="field-label">{label}</span><select value={value} onChange={(event) => onChange(event.target.value)} className="field-input"><option value="">اختر...</option>{options.filter(Boolean).map((option) => <option key={option} value={option}>{option}</option>)}</select></label>; }

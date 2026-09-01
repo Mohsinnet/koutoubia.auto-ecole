@@ -28,7 +28,10 @@ export default function ExamCalendar({ records }: ExamCalendarProps) {
     return grouped;
   }, {}), [events]);
   const monthPrefix = `${year}-${String(monthIndex + 1).padStart(2, "0")}`;
-  const monthEventCount = events.filter((event) => event.date.slice(0, 7) === monthPrefix).length;
+  const monthEvents = events.filter((event) => event.date.slice(0, 7) === monthPrefix);
+  const monthEventCount = monthEvents.length;
+  const monthPassed = monthEvents.filter((event) => event.result === "ناجح").length;
+  const monthFailed = monthEvents.filter((event) => event.result === "راسب").length;
   const selectedEvents = selectedDate ? eventsByDate[selectedDate] || [] : [];
   const monthLabel = new Intl.DateTimeFormat("ar-MA", { month: "long", year: "numeric" }).format(calendarDate);
 
@@ -51,6 +54,6 @@ export default function ExamCalendar({ records }: ExamCalendarProps) {
       </div>;
     })}</div></div>
     {selectedDate && <div className="mt-5 rounded-2xl border border-[#e9e2d8] bg-[#fbfaf7] p-4" role="region" aria-live="polite" aria-labelledby="selected-exam-date"><div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between"><h4 id="selected-exam-date" className="font-bold text-[#254950]">امتحانات {formatSelectedDate(selectedDate)}</h4><span className="text-xs text-[#8b9998]">{selectedEvents.length ? `${selectedEvents.length} موعد` : "لا توجد مواعيد"}</span></div>{selectedEvents.length ? <div className="mt-3 grid gap-2 sm:grid-cols-2">{selectedEvents.map((event) => <div key={event.id} className="flex items-center justify-between gap-3 rounded-xl bg-white px-3 py-2.5"><div className="min-w-0"><p className="truncate text-sm font-bold text-[#254950]">{event.name}</p><p className="mt-1 text-[11px] text-[#8b9998]">الامتحان {event.label}</p></div><span className={`shrink-0 rounded-full px-2.5 py-1 text-[11px] font-bold ${eventTone(event)}`}>{event.result || "غير محدد"}</span></div>)}</div> : <p className="mt-3 text-sm text-[#8b9998]">لا توجد امتحانات مسجلة في هذا التاريخ.</p>}</div>}
-    <div className="mt-4 flex flex-wrap items-center gap-4 text-xs text-[#718482]"><span className="font-semibold">{monthEventCount} موعدًا في هذا الشهر</span><span className="flex items-center gap-1.5"><i className="h-2.5 w-2.5 rounded-full bg-[#4d927c]" /> الامتحان الأول</span><span className="flex items-center gap-1.5"><i className="h-2.5 w-2.5 rounded-full bg-[#e8793a]" /> الامتحان الثاني</span></div>
+    <div className="mt-4 flex flex-wrap items-center gap-4 text-xs text-[#718482]"><span className="font-semibold">{monthEventCount} موعدًا في هذا الشهر</span><span className="font-bold text-[#276653]">✓ {monthPassed} ناجح</span><span className="font-bold text-[#a64e46]">✗ {monthFailed} راسب</span><span className="flex items-center gap-1.5"><i className="h-2.5 w-2.5 rounded-full bg-[#4d927c]" /> الامتحان الأول</span><span className="flex items-center gap-1.5"><i className="h-2.5 w-2.5 rounded-full bg-[#e8793a]" /> الامتحان الثاني</span></div>
   </section>;
 }
