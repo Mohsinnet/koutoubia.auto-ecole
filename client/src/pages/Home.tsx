@@ -16,7 +16,7 @@ type FormState = LicenseRecordForm;
 
 const emptyForm: FormState = {
   registrationNumber: "", registrationDate: new Date().toISOString().slice(0, 10), photoUrl: "", photoKey: "", vehicleNumber: "",
-  totalAmount: 0, firstPayment: 0, secondPayment: 0, remainingAmount: 0, name: "", birth: "", phone: "", idCard: "", exam: "", category: "B", result: "ناجح", secondExamDate: "", secondResult: "", notes: "",
+  totalAmount: 0, firstPayment: 0, secondPayment: 0, remainingAmount: 0, name: "", birth: "", phone: "", idCard: "", exam: "", category: "B", result: "", secondExamDate: "", secondResult: "", notes: "",
 };
 
 function initials(name: string) { return name.trim().split(/\s+/).slice(0, 2).map((part) => part.slice(0, 1)).join("") || "؟"; }
