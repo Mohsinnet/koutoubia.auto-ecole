@@ -17,7 +17,7 @@ export type LicenseRecordRow = {
   birth_date: string | null;
   phone: string | null;
   id_card: string | null;
-  exam_date: string;
+  exam_date: string | null;
   category: string;
   result: "ناجح" | "راسب" | "قيد المعالجة";
   notes: string | null;
@@ -36,7 +36,7 @@ export const supabaseConfigured = Boolean(supabase);
 export type LicenseRecordForm = { registrationNumber: string; registrationDate: string; photoUrl?: string; photoKey?: string; vehicleNumber: "" | "48040-د-26" | "50529-د-26"; totalAmount: number; firstPayment: number; secondPayment: number; remainingAmount: number; name: string; birth: string; phone: string; idCard: string; exam: string; category: string; result: LicenseRecordRow["result"] | ""; secondExamDate: string; secondResult: LicenseRecordRow["result"] | ""; notes: string };
 
 export function toLicensePayload(form: LicenseRecordForm) {
-  return { registration_number: form.registrationNumber.trim() || null, registration_date: form.registrationDate, name: form.name.trim(), birth_date: form.birth || null, phone: form.phone || null, id_card: form.idCard || null, exam_date: form.exam, category: form.category || "B", result: form.result || "قيد المعالجة", second_exam_date: form.secondExamDate || null, second_result: form.secondResult || null, vehicle_number: form.vehicleNumber || null, total_amount: form.totalAmount, first_payment: form.firstPayment, second_payment: form.secondPayment, remaining_amount: Math.max(0, form.totalAmount - form.firstPayment - form.secondPayment), notes: form.notes || null, photo_url: form.photoUrl || null, photo_key: form.photoKey || null, updated_at: new Date().toISOString() };
+  return { registration_number: form.registrationNumber.trim() || null, registration_date: form.registrationDate, name: form.name.trim(), birth_date: form.birth || null, phone: form.phone || null, id_card: form.idCard || null, exam_date: form.exam || null, category: form.category || "B", result: form.result || null, second_exam_date: form.secondExamDate || null, second_result: form.secondResult || null, vehicle_number: form.vehicleNumber || null, total_amount: form.totalAmount, first_payment: form.firstPayment, second_payment: form.secondPayment, remaining_amount: Math.max(0, form.totalAmount - form.firstPayment - form.secondPayment), notes: form.notes || null, photo_url: form.photoUrl || null, photo_key: form.photoKey || null, updated_at: new Date().toISOString() };
 }
 
 export function toLicenseRecord(row: LicenseRecordRow) {
@@ -57,9 +57,9 @@ export function toLicenseRecord(row: LicenseRecordRow) {
     birth: row.birth_date ?? "",
     phone: row.phone ?? "",
     idCard: row.id_card ?? "",
-    exam: row.exam_date,
+    exam: row.exam_date ?? "",
     category: row.category,
-    result: row.result,
+    result: row.result ?? "",
     notes: row.notes ?? "",
   } as const;
 }
