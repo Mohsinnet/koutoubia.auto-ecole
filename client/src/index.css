@@ -40,3 +40,7 @@ button:active { transform: scale(.97); }
 html { scrollbar-gutter: stable; }
 img { content-visibility: auto; }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior:auto !important; transition-duration:.01ms !important; animation-duration:.01ms !important; } }
+
+.status-badge, .payment-badge { display:inline-flex; align-items:center; border-radius:999px; padding:.28rem .55rem; font-size:.68rem; font-weight:800; white-space:nowrap; } .status-badge.success, .payment-badge.success { background:#e8f6ed; color:#36855a; } .status-badge.failed, .payment-badge.failed { background:#fcedeb; color:#bd5d52; } .status-badge.scheduled { background:#fff3df; color:#ad792e; } .status-badge.new, .payment-badge.new { background:#eef3f1; color:#557174; } .payment-badge.partial { background:#fff1e8; color:#b65d2f; }
+
+@media print { body { background:#fff !important; } .candidate-card-overlay { position:static !important; display:block !important; padding:0 !important; background:#fff !important; } .candidate-card { max-height:none !important; max-width:none !important; overflow:visible !important; border-radius:0 !important; box-shadow:none !important; } .candidate-card .card-actions, .candidate-card header button { display:none !important; } }
