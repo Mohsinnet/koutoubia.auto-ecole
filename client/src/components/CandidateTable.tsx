@@ -18,7 +18,7 @@ type CandidateTableProps = {
 
 export default function CandidateTable({ records, loading, openNew, removePhoto, setViewingRecord, openEdit, removeRecord }: CandidateTableProps) {
   return <>
-    <div className="hidden overflow-x-auto md:block">
+    <div className="hidden overflow-x-auto md:block candidate-table-scroll max-h-[68vh] overflow-y-auto">
       {loading ? <LoadingState /> : records.length === 0 ? <EmptyState openNew={openNew} /> : <DesktopTable records={records} removePhoto={removePhoto} setViewingRecord={setViewingRecord} openEdit={openEdit} removeRecord={removeRecord} />}
     </div>
     <div className="space-y-3 px-4 py-4 md:hidden">
