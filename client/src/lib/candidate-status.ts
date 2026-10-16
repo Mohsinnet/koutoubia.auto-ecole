@@ -21,9 +21,9 @@ type CandidateLike = {
 
 export function getCandidateStatus(item: CandidateLike): CandidateStatus {
   if (item.secondResult === "ناجح" || (item.result === "ناجح" && !item.secondExamDate)) return "ناجح";
-  if (item.secondExamDate && !item.secondResult) return "امتحان ثانٍ مبرمج";
+  if (item.secondExamDate && (!item.secondResult || item.secondResult === "قيد المعالجة")) return "امتحان ثانٍ مبرمج";
   if (item.result === "راسب") return "يحتاج إعادة";
-  if (item.exam && !item.result) return "امتحان أول مبرمج";
+  if (item.exam && (!item.result || item.result === "قيد المعالجة")) return "امتحان أول مبرمج";
   if (item.result === "ناجح") return "ملف مكتمل";
   return "ملف جديد";
 }
